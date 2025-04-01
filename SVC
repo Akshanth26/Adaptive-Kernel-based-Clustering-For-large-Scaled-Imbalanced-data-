@@ -1,0 +1,50 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.decomposition import PCA
+import pandas as pd
+
+# Load dataset (replace 'creditcard.csv' with actual file)
+file_path = "creditcard.csv"
+df = pd.read_csv(file_path)
+
+# Handle missing values in the features (X)
+imputer = SimpleImputer(strategy="mean")  # You can also use "median" or "most_frequent"
+X = imputer.fit_transform(df.iloc[:, :-1].values)  # Features
+
+# Handle missing values in the target (y)
+y = df.iloc[:, -1].fillna(df.iloc[:, -1].mode()[0]).values  # Replace NaN with mode (most frequent value)
+
+# Standardize features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Reduce dimensions for visualization
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)
+
+# Train SVC model with RBF kernel
+svc = SVC(kernel='rbf', C=1, gamma='auto')
+svc.fit(X_pca, y)
+
+# Create mesh grid for plotting
+delta = 1  # Adjusts grid spacing for better visualization
+x_min, x_max = X_pca[:, 0].min() - delta, X_pca[:, 0].max() + delta
+y_min, y_max = X_pca[:, 1].min() - delta, X_pca[:, 1].max() + delta
+xx, yy = np.meshgrid(np.linspace(x_min, x_max, 200), np.linspace(y_min, y_max, 200))
+
+# Predict class for each point in the mesh grid
+Z = svc.predict(np.c_[xx.ravel(), yy.ravel()])
+Z = Z.reshape(xx.shape)
+
+# Plot decision boundary
+plt.figure(figsize=(8, 5))
+plt.contourf(xx, yy, Z, alpha=0.3, cmap='coolwarm')
+plt.scatter(X_pca[:, 0], X_pca[:, 1], c=y, cmap='coolwarm', edgecolors='k')
+plt.xlabel('PCA Feature 1')
+plt.ylabel('PCA Feature 2')
+plt.title('SVC Decision Boundary with RBF Kernel (PCA Reduced)')
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.show()
