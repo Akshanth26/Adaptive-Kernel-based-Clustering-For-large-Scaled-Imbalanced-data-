@@ -1,0 +1,124 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from imblearn.over_sampling import SMOTE
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score, confusion_matrix, silhouette_score, roc_curve, roc_auc_score
+import matplotlib.pyplot as plt
+from sklearn.metrics.pairwise import rbf_kernel
+from sklearn.cluster import KMeans
+
+def kmeans_landmark_selection(X, num_landmarks):
+    """Selects landmarks using K-Means clustering."""
+    kmeans = KMeans(n_clusters=num_landmarks, random_state=42)
+    kmeans.fit(X)
+    return kmeans.cluster_centers_, kmeans.labels_
+
+# Step 1: Data Preprocessing
+
+# Load the dataset
+data = pd.read_csv(r"/content/creditcard.csv")
+
+# Drop irrelevant features if they exist
+columns_to_drop = ['Time', 'ID']
+columns_to_drop_existing = [col for col in columns_to_drop if col in data.columns]
+data.drop(columns_to_drop_existing, axis=1, inplace=True)
+
+# Separate features and target variable
+X = data.drop('Class', axis=1)
+y = data['Class']
+
+# Random sample for computational feasibility (optional, but recommended)
+data_sampled = data.sample(n=10000, random_state=42)
+
+# Ensure X and y are both sampled consistently from the same dataset
+X = data_sampled.drop('Class', axis=1)
+y = data_sampled['Class']
+
+# Step 2: Split dataset into training and testing sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y, random_state=42)
+
+# Standardizing features using StandardScaler
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Step 3: Landmark Selection (using K-Means)
+num_landmarks = 1500  # Increased number of landmarks to improve silhouette score
+landmarks, labels = kmeans_landmark_selection(X_train, num_landmarks)
+
+# Step 4: Kernel Approximation using Landmarks
+gamma = 0.0001  # Reduced gamma to make the SVC less sensitive and improve silhouette score
+K_train_approx = rbf_kernel(X_train, landmarks, gamma=gamma)
+K_test_approx = rbf_kernel(X_test, landmarks, gamma=gamma)
+
+# Step 5: Handling Class Imbalance with SMOTE
+smote = SMOTE(random_state=42)
+X_train_resampled, y_train_resampled = smote.fit_resample(K_train_approx, y_train)
+
+# Step 6: Train Support Vector Classifier (SVC) with RBF Kernel (using approximated kernel)
+svc = SVC(kernel='rbf', gamma='scale', random_state=42)
+svc.fit(X_train_resampled, y_train_resampled)
+y_pred_svc = svc.predict(K_test_approx)
+
+# Step 7: Evaluation Metrics
+
+# Accuracy on the testing set
+accuracy_svc = accuracy_score(y_test, y_pred_svc)
+print("SVC Test Accuracy:", accuracy_svc)
+
+# Check the training accuracy
+y_train_pred_svc = svc.predict(X_train_resampled)
+train_accuracy_svc = accuracy_score(y_train_resampled, y_train_pred_svc)
+print("SVC Training Accuracy:", train_accuracy_svc)
+
+# If there's a large gap between train and test accuracy, overfitting is likely.
+if train_accuracy_svc - accuracy_svc > 0.1:
+  print("There may be overfitting.")
+else:
+   print("Overfitting is not likely.")
+
+# Overall accuracy (this is the accuracy on the original test set predictions)
+overall_accuracy = accuracy_score(y_test, y_pred_svc)
+print("Overall Accuracy on the Test Set:", overall_accuracy)
+
+# Silhouette Score for Clustering (evaluating clustering quality)
+silhouette = silhouette_score(X_train_resampled, svc.predict(X_train_resampled))
+print("Silhouette Score (SVC Clustering):", silhouette)
+
+# Confusion Matrix
+conf_matrix = confusion_matrix(y_test, y_pred_svc)
+print("Confusion Matrix:\n", conf_matrix)
+
+# Visualizing Confusion Matrix
+plt.figure(figsize=(6, 6))
+plt.matshow(conf_matrix, cmap='coolwarm', fignum=1)
+plt.colorbar()
+plt.title('Confusion Matrix', pad=15)
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+
+# Annotating confusion matrix with counts
+for (i, j), val in np.ndenumerate(conf_matrix):
+    plt.text(j, i, f'{val}', ha='center', va='center', color='white', fontsize=12)
+
+plt.show()
+
+# ROC Curve Visualization for Support Vector Classifier
+fpr, tpr, _ = roc_curve(y_test, y_pred_svc)
+plt.plot(fpr, tpr, label="SVC (AUC = {:.2f})".format(roc_auc_score(y_test, y_pred_svc)))
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve")
+plt.legend()
+plt.show()
+
+# Landmark Visualization (2D plot)
+plt.figure(figsize=(8, 6))
+plt.scatter(landmarks[:, 0], landmarks[:, 1], c='red', marker='x', label='Landmarks')
+plt.title('Landmark Locations (K-Means)')
+plt.xlabel('Feature 1')
+plt.ylabel('Feature 2')
+plt.legend()
+plt.show()
